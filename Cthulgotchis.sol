@@ -1,27 +1,43 @@
 // SPDX-License-Identifier: MIT
-pragma solidity ^0.8.6;
+pragma solidity ^0.8.4;
 
-import "@openzeppelin/contracts@4.6.0/token/ERC721/extensions/ERC721URIStorage.sol";
-import "@openzeppelin/contracts@4.6.0/utils/Counters.sol";
+// KeeperCompatible.sol imports the functions from both ./KeeperBase.sol and
+// ./interfaces/KeeperCompatibleInterface.sol
+import "@chainlink/contracts/src/v0.8/KeeperCompatible.sol";
 
-contract Cthulgotchis is ERC721, ERC721URIStorage {
+import "@openzeppelin/contracts/token/ERC721/ERC721.sol";
+import "@openzeppelin/contracts/access/Ownable.sol";
+import "@openzeppelin/contracts/token/ERC721/extensions/ERC721Enumerable.sol";
+import "@openzeppelin/contracts/token/ERC721/extensions/ERC721URIStorage.sol";
+import "@openzeppelin/contracts/token/ERC721/extensions/ERC721Burnable.sol";
+import "@openzeppelin/contracts/utils/Counters.sol";
+
+contract Cthulgotchis is ERC721, Ownable, ERC721Enumerable, ERC721URIStorage, ERC721Burnable, KeeperCompatibleInterface {
     using Counters for Counters.Counter;
 
-    Counters.Counter public tokenIdCounter;
- 
-   // Metadata information for each stage of the NFT on IPFS.
-    string[] IpfsUri = [
-    "https://gateway.pinata.cloud/ipfs/QmTpKCi9JhaqC4hBT4xPEn155nyq5myfSLXhRZDWu9LRVg/cthulgotchi-json-0.json",
-    "https://gateway.pinata.cloud/ipfs/QmTpKCi9JhaqC4hBT4xPEn155nyq5myfSLXhRZDWu9LRVg/cthulgotchi-json-1.json",
-    "https://gateway.pinata.cloud/ipfs/QmTpKCi9JhaqC4hBT4xPEn155nyq5myfSLXhRZDWu9LRVg/cthulgotchi-json-2.json",
-    "https://gateway.pinata.cloud/ipfs/QmTpKCi9JhaqC4hBT4xPEn155nyq5myfSLXhRZDWu9LRVg/cthulgotchi-json-3.json",
-    "https://gateway.pinata.cloud/ipfs/QmTpKCi9JhaqC4hBT4xPEn155nyq5myfSLXhRZDWu9LRVg/cthulgotchi-json-4.json"
-    ]; 
+    Counters.Counter private _tokenIdCounter;
 
     mapping(uint256 => uint256) public lastTimeFeed;
     mapping(uint256 => uint256) public mintDate;
 
-    uint256 public constant FEED_COOLDOWN = 2 minutes;
+    address keeperAddress;
+
+    // uint256 burnInterval = 60 * 60 * 24; // (seconds) = one day. 
+    uint256 burnInterval = 60 * 2;
+
+    // Keeper states
+    // The Keep tries checkUpKeep on every block. (12seg in ETH)
+    // uint interval; // This is just an optional variable to calculate or restrict action.
+    // uint lastTimeStamp; // This will be the last time that we executed the Keeper Action.
+
+    // Metadata information for each stage of the NFT on IPFS.
+    string[] IpfsUri = [
+        "https://gateway.pinata.cloud/ipfs/QmTpKCi9JhaqC4hBT4xPEn155nyq5myfSLXhRZDWu9LRVg/cthulgotchi-json-0.json",
+        "https://gateway.pinata.cloud/ipfs/QmTpKCi9JhaqC4hBT4xPEn155nyq5myfSLXhRZDWu9LRVg/cthulgotchi-json-1.json",
+        "https://gateway.pinata.cloud/ipfs/QmTpKCi9JhaqC4hBT4xPEn155nyq5myfSLXhRZDWu9LRVg/cthulgotchi-json-2.json",
+        "https://gateway.pinata.cloud/ipfs/QmTpKCi9JhaqC4hBT4xPEn155nyq5myfSLXhRZDWu9LRVg/cthulgotchi-json-3.json",
+        "https://gateway.pinata.cloud/ipfs/QmTpKCi9JhaqC4hBT4xPEn155nyq5myfSLXhRZDWu9LRVg/cthulgotchi-json-4.json"
+    ];
 
     event Feed(
         address indexed owner,
@@ -35,51 +51,80 @@ contract Cthulgotchis is ERC721, ERC721URIStorage {
         uint256 indexed evolution
     );
 
-    error feedOnCooldown(uint256 timePassed , uint256 totalCooldown);
+    event Burned(
+        address indexed exOwner,
+        uint256 indexed exTokenId,
+        uint256 stage,
+        uint256 indexed age
+    );
 
-    modifier onlyNFTOwner(uint256 _tokenId){
-        require(msg.sender == ownerOf(_tokenId), "Only the NFT owner is able to execute this function.");
+    modifier onlyNFTOwner(uint256 _tokenId) {
+        require(
+            msg.sender == ownerOf(_tokenId),
+            "Only the NFT owner is able to execute this function."
+        );
         _;
     }
 
-    constructor() ERC721("Cthulgotchis", "CGC") {
+    constructor(/*uint _interval*/) ERC721("Cthulgotchis", "CGC") {
+        // interval = _interval;
+        // lastTimeStamp = block.timestamp;
     }
+
+    function checkUpkeep(bytes calldata /* checkData */) external view override returns (bool upkeepNeeded, bytes memory /* performData */) {
+        // upkeepNeeded = (block.timestamp - lastTimeFeed) > interval;
+        upkeepNeeded = getAllHungryIds().length > 0;
+        // We don't use the checkData in this example. The checkData is defined when the Upkeep was registered.
+    }
+
+    function performUpkeep(bytes calldata /* performData */) external override {
+        //We highly recommend revalidating the upkeep in the performUpkeep function
+        // if ((block.timestamp - lastTimeStamp) > interval ) {
+        //     lastTimeStamp = block.timestamp;
+        //     tryEvolvingNFT(0);
+        // }
+        uint256[] memory burnIds = getAllHungryIds();
+        for (uint256 i = 0; i < burnIds.length; i++ ){
+            burn(burnIds[i]);
+            // address exOwner, uint256 exTokenId, uint256 stage, uint256 age
+            emit Burned(ownerOf(burnIds[i]), burnIds[i], getCurrentStage(burnIds[i]), block.timestamp - mintDate[burnIds[i]]);
+        }
+
+        // We don't use the performData in this example. The performData is generated by the Keeper's call to your checkUpkeep function
+    }
+
 
     function safeMint(address to) public {
-        // Restrict minting amount!!!!! to do
-        uint256 tokenId = tokenIdCounter.current();
-        tokenIdCounter.increment();
+        // everyone can mint, with a maximun of 3.
+        require(balanceOf(to) < 3, "Max 3 NFT's per address");
+        uint256 tokenId = _tokenIdCounter.current();
+        _tokenIdCounter.increment();
         _safeMint(to, tokenId);
         _setTokenURI(tokenId, IpfsUri[0]);
-        // set as feeded
+        // set as feeded at the minting timestamp
+        mintDate[tokenId] = block.timestamp;
         lastTimeFeed[tokenId] = block.timestamp;
+        approve(owner(), tokenId);
     }
 
-    function feedNFT(uint256 _tokenId) public onlyNFTOwner(_tokenId) { 
-        // FEED_COOLDOWN must have finished to feed again.
-        uint256 lastTime = lastTimeFeed[_tokenId];
-        if (block.timestamp - lastTime < FEED_COOLDOWN){
-            //                      time passed, totalCooldown
-            revert feedOnCooldown(block.timestamp - lastTime, FEED_COOLDOWN);
-        }
+    function feedNFT(uint256 _tokenId) public onlyNFTOwner(_tokenId) {
         lastTimeFeed[_tokenId] = block.timestamp;
         emit Feed(msg.sender, _tokenId, block.timestamp);
 
         // If the time for evolving has come, evolve!
-        evolveNFT(_tokenId);
+        // tryEvolvingNFT(_tokenId);
     }
 
-
-    function evolveNFT(uint256 _tokenId) private {
+    function tryEvolvingNFT(uint256 _tokenId) private {
         uint256 age = block.timestamp - mintDate[_tokenId];
         uint256 currentStage = getCurrentStage(_tokenId);
-        if(currentStage >= 4){return;} // cannot evolve from stage 4
 
-        if (currentStage == 0 && age < 2 minutes){return;}
-        if (currentStage == 1 && age < 5 minutes){return;}
-        if (currentStage == 2 && age < 10 minutes){return;}
-        if (currentStage == 3 && age < 15 minutes){return;}
-        
+        if (currentStage >= 4) {return;} // cannot evolve from stage 4
+        if (currentStage == 0 && age < 4 minutes) {return;}
+        if (currentStage == 1 && age < 9 minutes) {return;}
+        if (currentStage == 2 && age < 14 minutes) {return;}
+        if (currentStage == 3 && age < 19 minutes) {return;}
+
         // Get the current stage of the NFT and add 1
         uint256 newVal = currentStage + 1;
         // store the new URI
@@ -89,23 +134,18 @@ contract Cthulgotchis is ERC721, ERC721URIStorage {
         emit Evolve(msg.sender, _tokenId, newVal);
     }
 
-    // determine the stage of the flower growth
+     // determine the stage of the cthulgotchie growth
     function getCurrentStage(uint256 _tokenId) public view returns (uint256) {
         string memory _uri = tokenURI(_tokenId);
+        if (compareStrings(_uri, IpfsUri[0])) {return 0;} // Egg
+        if (compareStrings(_uri, IpfsUri[1])) {return 1;} // Baby
+        if (compareStrings(_uri, IpfsUri[2])) {return 2;} // Young
+        if (compareStrings(_uri, IpfsUri[3])) {return 3;} // Adult
+        return 4; // King
+    }
 
-        if (compareStrings(_uri, IpfsUri[0])) {  // Egg
-            return 0;
-        }
-        if (compareStrings(_uri, IpfsUri[1])) {  // Baby
-            return 1;
-        }
-        if (compareStrings(_uri, IpfsUri[2])) {  // Young
-            return 2;
-        }
-        if (compareStrings(_uri, IpfsUri[3])) {  // Adult
-            return 3;
-        }
-        return 4;  // King
+    function setKeeperAddress(address _keeperAddress) public onlyOwner{
+        keeperAddress = _keeperAddress;
     }
 
     function compareStrings(string memory a, string memory b)
@@ -117,11 +157,47 @@ contract Cthulgotchis is ERC721, ERC721URIStorage {
             keccak256(abi.encodePacked((b))));
     }
 
-    // The following functions is an override required by Solidity.
-    function _burn(uint256 tokenId)
+    function getAllTokenIds() public view returns(uint256[] memory ) {
+
+        uint256 totalSupply = totalSupply();
+        uint256[] memory tokenIds = new uint256[](totalSupply);
+
+        for (uint256 i = 0; i < totalSupply; i++){
+            tokenIds[i] = tokenByIndex(i);
+        }
+        return tokenIds;
+    }
+
+    function getAllHungryIds() public view returns (uint256[] memory){
+        
+        uint256[] memory allTokenIds = getAllTokenIds();
+        // filter to get which ones has to be burned.
+        uint256 hungryCounter;
+        for ( uint256 i = 0; i < allTokenIds.length; i++ ){
+            if (block.timestamp - lastTimeFeed[allTokenIds[i]] >= burnInterval ){
+                hungryCounter++;
+            }
+        }   
+        
+        uint256[] memory allHungryIds = new uint256[](hungryCounter);
+        for ( uint256 i = 0; i < allTokenIds.length; i++ ){
+            if (block.timestamp - lastTimeFeed[allTokenIds[i]] >= burnInterval ){
+                allHungryIds[i] = allTokenIds[i];
+            }
+        } 
+        return allHungryIds;
+    }
+
+    // The following functions are overrides required by Solidity.
+
+    function _beforeTokenTransfer(address from, address to, uint256 tokenId)
         internal
-        override(ERC721, ERC721URIStorage)
+        override(ERC721, ERC721Enumerable)
     {
+        super._beforeTokenTransfer(from, to, tokenId);
+    }
+
+    function _burn(uint256 tokenId) internal override(ERC721, ERC721URIStorage) {
         super._burn(tokenId);
     }
 
@@ -134,9 +210,12 @@ contract Cthulgotchis is ERC721, ERC721URIStorage {
         return super.tokenURI(tokenId);
     }
 
-    // My custom getters
-
-    function getLastTimeFeed (uint256 tokenId) public view returns(uint256){
-        return lastTimeFeed[tokenId];
+    function supportsInterface(bytes4 interfaceId)
+        public
+        view
+        override(ERC721, ERC721Enumerable)
+        returns (bool)
+    {
+        return super.supportsInterface(interfaceId);
     }
 }
