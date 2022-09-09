@@ -9,4 +9,4 @@ To mantain the collection alive, the Adult cthulgotchis (+14 days alive) can be 
 
 #### Techs used
 
-Nexts.js, Ethers.js, IPFS, Wagmi Hooks, Solidity, Hardhat, Chainlink Keepers, TailwindCSS, Js Particles.
+Nexts.js, Ethers.js, IPFS, Wagmi Hooks, Solidity, OpenZeppelin Smart Contracts, Hardhat, Chainlink Keepers, TailwindCSS, Js Particles.
