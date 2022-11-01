@@ -50,7 +50,7 @@ const Mint = ({ onClose, address }) => {
         their Cthulgotchis to keep the collection alive.
       </p>
       <p className="text-white/80 leading-[1.2rem]">
-        Remember, your Cthulgotchi will get burned from the collection if he doesn't eat enough!
+        Remember, your Cthulgotchi will get burned from the collection if he doesnt eat enough!
       </p>
       <span className="flex align-items text-white "></span>
       {/* mintData, isMintLoading, isMintStarted, isMintingError*/}
